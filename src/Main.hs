@@ -1,3 +1,6 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Main where
@@ -6,6 +9,7 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.List
 import Control.Monad.State
+import Control.Monad.Writer
 import Data.Function
 import Data.List
 import qualified Data.Map as M
@@ -100,6 +104,26 @@ class Monad repr =>
   addi :: String -> Integer -> repr [Rational]
   jge :: String -> Integer -> String -> repr [Rational]
   gensym :: repr String
+
+newtype S a =
+  S
+    { unS :: StateT Int (Writer [String]) a
+    }
+  deriving (Functor, Applicative, Monad, MonadWriter [String], MonadState Int)
+
+instance FracComp S where
+  lit i = tell [show i] *> return []
+  label l = tell [unwords ["label", l]] *> return []
+  addi l x = tell [unwords ["addi", l, show x]] *> return []
+  jge l x dest = tell [unwords ["jge", l, show x, dest]] *> return []
+  gensym = do
+    x <- get
+    modify (+ 1)
+    return ('g' : show x)
+
+view = unS
+
+pretty x = unlines (execWriter (evalStateT (sequence (view <$> x)) 0))
 
 instance FracComp Comp where
   lit i = return [toRational i]
