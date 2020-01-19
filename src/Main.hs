@@ -1,11 +1,7 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Main where
 
-import Control.Monad
 import Control.Monad.Except
 import Control.Monad.List
 import Control.Monad.State
@@ -16,15 +12,15 @@ import qualified Data.Map as M
 import Data.Ratio
 import qualified Math.NumberTheory.Primes as P
 
-default (Integer, Rational)
-
+-- |The state of the compiler.
+-- currInstPrime, nextInstPrime are integers representing the primes
+-- to use for the current and next instructions.
+-- labels, vars are mappings from strings to primes. 
 data CompState =
   CompState
-    { currInstPrime :: Integer
-    , nextInstPrime :: Integer
-    , primes :: [Integer]
-    , labels :: M.Map String Integer
-    , vars :: M.Map String Integer
+    { currInstPrime, nextInstPrime :: Integer
+    , labels, vars :: M.Map String Integer
+    , primes :: [P.Prime Integer]
     , gensymCount :: Integer
     }
   deriving (Show)
@@ -41,15 +37,13 @@ newtype Comp a =
            )
 
 -- runComp :: Comp a -> Either String a
-run a = a & runComp & runExceptT & evalWithState initState
-  where
-    evalWithState s a = evalState a s
+run a = a & runComp & runExceptT & flip evalState initState
 
-initState =
+initState = let (c:n:p) = P.primes in
   (CompState
-     { currInstPrime = 2
-     , nextInstPrime = 3
-     , primes = drop 2 (P.unPrime <$> P.primes)
+     { currInstPrime = P.unPrime c
+     , nextInstPrime = P.unPrime n
+     , primes = p
      , labels = mempty
      , vars = mempty
      , gensymCount = 0
@@ -61,20 +55,21 @@ newsym = do
   modify (\s -> s {gensymCount = n + 1})
   return ('t' : show n)
 
+-- |Return a new prime we haven't used yet.
 newPrime :: Comp Integer
 newPrime = do
   l <- gets primes
   modify (\s -> s {primes = tail l})
-  return (head l)
+  return (P.unPrime (head l))
 
+-- |Advance the instruction primes.
 advance :: Comp ()
 advance = do
   c <- gets nextInstPrime
   p <- newPrime
   modify (\s -> s {currInstPrime = c, nextInstPrime = p})
 
-test = replicateM 4 (gets currInstPrime <* advance)
-
+-- |Return the prime for a given label.
 primeForLabel :: String -> Comp Integer
 primeForLabel label = do
   labels <- gets labels
@@ -85,6 +80,7 @@ primeForLabel label = do
       modify (\s -> s {labels = M.insert label p labels})
       return p
 
+-- |Return the prime for a given variable.
 primeForVar :: String -> Comp Integer
 primeForVar label = do
   labels <- gets vars
@@ -95,7 +91,8 @@ primeForVar label = do
       modify (\s -> s {vars = M.insert label p labels})
       return p
 
--- Tagless Final DSL
+-- |FracComp is a DSL in the tagless final style for Turing-complete
+-- FRACTRAN programs.
 class Monad repr =>
       FracComp repr
   where
@@ -105,6 +102,7 @@ class Monad repr =>
   jge :: String -> Integer -> String -> repr [Rational]
   gensym :: repr String
 
+-- Used in the pretty printer
 newtype S a =
   S
     { unS :: StateT Int (Writer [String]) a
@@ -155,7 +153,7 @@ instance FracComp Comp where
 
 subi x y = addi x (-y)
 
--- Perform a <- a + b
+-- |Add with store
 adds a b = do
   gtemp <- gensym
   assemble
@@ -163,21 +161,26 @@ adds a b = do
     , while (jge gtemp 1) [addi a 1, addi b 1, subi gtemp 1]
     ]
 
+-- |Goto statement.
 goto dest = do
   g <- gensym
   jge g 0 dest
 
+-- |Jump if less than statement.
 jle var val dest = do
   skip <- gensym
   assemble [jge var (val + 1) skip, goto dest, label skip]
 
+-- |While loop, taking a test and a body.
 while test body = do
   gstart <- gensym
   gend <- gensym
   assemble (concat [[goto gend, label gstart], body, [label gend, test gstart]])
 
+-- |Zero a given variable.
 zero var = while (jge var 1) [subi var 1]
 
+-- |Move statement.
 move to from = do
   gtemp <- gensym
   assemble
@@ -186,6 +189,7 @@ move to from = do
     , while (jge gtemp 1) [addi to 1, addi from 1, subi gtemp 1]
     ]
 
+-- |Immediate modulo of a variable with an integer.
 modi var val = assemble [while (jge var val) [subi var val]]
 
 divi var val = do
@@ -196,9 +200,12 @@ divi var val = do
     , move var gresult
     ]
 
+-- |The assembler.
 assemble :: (Traversable m, Monad m, Monad f) => m (f (m a)) -> f (m a)
 assemble l = join <$> sequence l
 
+-- |Naïve interpreter for FRACTRAN (credit to Stuart Geipel).  We can
+-- do much better, see https://github.com/pimlu/fractran for details.
 naive fs n = maybe [] (next . numerator) match
   where
     ps = map (* fromIntegral n) fs
@@ -207,16 +214,23 @@ naive fs n = maybe [] (next . numerator) match
 
 runAssembler = run . assemble
 
-runAsmVerbose l =
+runAsmWith f l =
   case runAssembler l of
-    Right l -> mapM_ print (P.factorise <$> naive l 2)
+    Right l -> f $ (P.factorise <$> naive l 2)
     Left err -> putStrLn ("Failed: " ++ err)
 
-runAsm l =
-  case runAssembler l of
-    Right l -> print . last $ (P.factorise <$> naive l 2)
-    Left err -> putStrLn ("Failed: " ++ err)
+-- |Run a FRACTRAN program, logging each execution.
+runAsmVerbose :: [Comp [Rational]] -> IO ()
+runAsmVerbose = runAsmWith (mapM_ print)
 
+-- |Run a FRACTRAN program, printing the final result, only if the
+-- machine terminates.
+runAsm :: [Comp [Rational]] -> IO ()
+runAsm = runAsmWith (print . last)
+
+-- Space efficient (i.e. register-minimal) Fibonacci. The result of
+-- the computation is stored in registers a and b, and depends on the
+-- parity of n.
 fibProg n =
   [ addi "a" 1
   , addi "b" 1
@@ -233,7 +247,7 @@ fibProg n =
   , label "end"
   ]
 
-sumTo n = [addi "n" n, while (jge "n" 0) [adds "c" "n", subi "n" 1]]
+sumTo n = [addi "c" 0, addi "n" n, while (jge "n" 0) [adds "c" "n", subi "n" 1]]
 
 main :: IO ()
 main = putStrLn "Hello, Haskell!"

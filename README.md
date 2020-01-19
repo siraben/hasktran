@@ -15,7 +15,7 @@ not unlike Lisp macros.
 
 ```haskell
 sumTo :: FracComp repr => Integer -> [repr [Rational]]
-sumTo n = [addi "n" n, while (jge "n" 0) [adds "c" "n", subi "n" 1]]
+sumTo n = [addi "c" 0, addi "n" n, while (jge "n" 0) [adds "c" "n", subi "n" 1]]
 ```
 
 The following show the invocation of the assembler and naïve
