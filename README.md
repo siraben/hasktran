@@ -38,23 +38,12 @@ A pretty printer for FRACTRAN programs was also added.
 λ> :t pretty
 pretty :: Traversable t => t (S a) -> String
 λ> putStr (pretty (sumTo 10))
-addi n 10
-jge g2 0 g1
-label g0
-jge g6 0 g5
-label g4
-addi g3 1
-addi n -1
-label g5
-jge n 1 g4
-jge g9 0 g8
-label g7
-addi c 1
-addi n 1
-addi g3 -1
-label g8
-jge g3 1 g7
-addi n -1
-label g1
-jge n 0 g0
+c += 0
+n += 10
+while n >= 0 {
+  c += n
+  n -= 1
+}
 ```
+## Future plans
+- [ ] Add partial evaluator
