@@ -104,6 +104,7 @@ primeForVar label = do
 -- FRACTRAN programs.
 class Monad repr =>
       FracComp repr
+  -- Minimal instructions needed for Turing-completeness
   where
   {-# MINIMAL lit, label, addi, jge, gensym #-}
   lit :: Integer -> repr [Rational]
@@ -284,23 +285,39 @@ sumTo n = [addi "c" 0, addi "n" n, while (jge "n" 0) [adds "c" "n", subi "n" 1]]
 main :: IO ()
 main = putStrLn "Hello, Haskell!"
 
--- |Peephole optimization
-peepholeOptimize =
-  fst . head . filter (uncurry (==)) . (zip `ap` tail) <$> iterate peephole
-  where
-    peephole :: Foldable t => t (Ratio Integer) -> [Ratio Integer]
-    peephole = foldr g []
-      where
-        optimizable (a :% b) (c :% d) e =
-          a == d && PT.isPrime a && coprime c b && f a e
-        f a e = a `notElem` (e >>= h)
-        h (a :% b) = [a, b]
-        g x [] = [x]
-        g x@(a :% b) xs@(y@(c :% d):ys)
-          | optimizable x y ys = c % b : ys
-          | otherwise = x : xs
+-- | Perform peephole optimization until the program no longer changes
+peepholeOptimize = until (\x -> x == peephole x) peephole
 
--- |Check if peephole optimization yielded a program that had the same
+{- | Perform a single peephole pass, starting from the end of the list
+and going backwards, this is so that optimizations can propagate
+from the end of the list, for instance,
+> peephole [3%2,5%3,7%5,11%7,13%11] == [13 % 2]
+-}
+peephole :: Foldable t => t (Ratio Integer) -> [Ratio Integer]
+peephole = foldr g []
+  where
+    -- | In the program fragment: '[a/b, c/d] ++ e' if a and d are the
+    -- same prime, and c and b are coprime, then we can write '[c/b]
+    -- ++ e' instead.  However, we have to check if the prime that we
+    -- eliminated (i.e. a) appears anywhere in e before doing so.
+    -- This check is done by the function f.
+    optimizable (a :% b) (c :% d) e =
+      a == d && PT.isPrime a && coprime c b && f a e
+    -- | Check if the prime 'a' appears anywhere in the program
+    -- segment 'e', by collecting all the numerators and denominators
+    -- and checking if 'a' is not in 'e'.  Note that since in
+    -- 'optimizable' we know d is the same prime as a, it suffices to
+    -- check using 'notElem' instead of some modulo check, as (c/d)'s
+    -- execution would always shadow that of some other fraction (X/d)
+    -- later.
+    f a e = a `notElem` (e >>= h)
+    h (a :% b) = [a, b]
+    g x [] = [x]
+    g x@(_ :% b) xs@(y@(c :% _):ys)
+      | optimizable x y ys = c % b : ys
+      | otherwise = x : xs
+
+-- | Check if peephole optimization yielded a program that had the same
 -- final end state.
 peepholeCorrect :: [Ratio Integer] -> Bool
 peepholeCorrect p = ((==) `on` (last . flip naive 2)) p (peepholeOptimize p)

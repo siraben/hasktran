@@ -25,13 +25,13 @@ sumTo n = [addi "c" 0, addi "n" n, while (jge "n" 0) [adds "c" "n", subi "n" 1]]
 The following show the invocation of the assembler and naïve
 interpreter and peephole optimizer.
 ```haskell
-λ> runAssembler (sumTo 10)                      -- Program length: 25
+λ> runAssembler (sumTo 10)                      -- Program length: 31
 Right [847425747 % 2,13 % 3,19 % 13,11 % 3,11 % 29,31 % 11,41 % 31,23
 % 11,23 % 47,2279 % 23,59 % 301,59 % 41,67 % 413,329 % 67,61 % 59,73 %
 61,83 % 73,71 % 61,71 % 97,445 % 71,707 % 89,103 % 5353,103 % 83,109 %
 5459,5141 % 109,107 % 103,113 % 749,113 % 19,131 % 113,29 % 131,127 %
 113]
-λ> peepholeOptimize <$> runAssembler (sumTo 10) -- Program length: 31
+λ> peepholeOptimize <$> runAssembler (sumTo 10) -- Program length: 25
 Right [847425747 % 2,19 % 3,11 % 3,11 % 29,41 % 11,23 % 11,2279 %
 47,59 % 301,59 % 41,67 % 413,329 % 67,61 % 59,83 % 61,71 % 61,445 %
 97,707 % 89,103 % 5353,103 % 83,109 % 5459,5141 % 109,107 % 103,113 %
