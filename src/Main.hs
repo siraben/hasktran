@@ -12,7 +12,10 @@ import Data.Functor
 import Data.List
 import qualified Data.Map as M
 import Data.Ratio
+import GHC.Real
+import Math.NumberTheory.Euclidean
 import qualified Math.NumberTheory.Primes as P
+import qualified Math.NumberTheory.Primes.Testing as PT
 import Text.PrettyPrint.HughesPJ hiding ((<>))
 
 -- | The state of the compiler.
@@ -143,11 +146,11 @@ class Monad repr =>
     gend <- gensym
     assemble
       (concat [[goto gend, label gstart], body, [label gend, test gstart]])
-
--- | Jump if less than statement.
-jle var val dest = do
-  skip <- gensym
-  assemble [jge var (val + 1) skip, goto dest, label skip]
+  -- | Jump if less than statement.
+  jle :: String -> Integer -> String -> repr [Rational]
+  jle var val dest = do
+    skip <- gensym
+    assemble [jge var (val + 1) skip, goto dest, label skip]
 
 -- | Zero a given variable.
 zero var = while (jge var 1) [subi var 1]
@@ -183,12 +186,13 @@ newtype S a =
 instance FracComp S where
   lit i = tell [text (show i)] $> []
   label l = tell ["label" <+> text l] $> []
-  goto l = tell ["goto" <+> text l] $> []
   addi l x = tell [text l <+> "+=" <+> text (show x)] $> []
-  adds l x = tell [text l <+> "+=" <+> text x] $> []
-  subi l x = tell [text l <+> "-=" <+> text (show x)] $> []
   jge l x dest = tell [text l <+> ">=" <+> (text (show x) <+> text dest)] $> []
   gensym = gets (('g' :) . show) <* modify (+ 1)
+  jle l x dest = tell [text l <+> "<=" <+> (text (show x) <+> text dest)] $> []
+  adds l x = tell [text l <+> "+=" <+> text x] $> []
+  subi l x = tell [text l <+> "-=" <+> text (show x)] $> []
+  goto l = tell ["goto" <+> text l] $> []
   while test body = do
     censor (fmap (\x -> "while " <> x <> "{")) (test "")
     censor (nest 2 <$>) (sequence body)
@@ -206,6 +210,7 @@ instance FracComp Comp where
     return [f]
   -- need less than 0 check because (^) raises an error on
   -- negative exponent
+  addi x 0 = primeForVar x $> []
   addi x y = do
     g <- (^ abs y) <$> primeForVar x
     f <-
@@ -278,3 +283,24 @@ sumTo n = [addi "c" 0, addi "n" n, while (jge "n" 0) [adds "c" "n", subi "n" 1]]
 
 main :: IO ()
 main = putStrLn "Hello, Haskell!"
+
+-- |Peephole optimization
+peepholeOptimize =
+  fst . head . filter (uncurry (==)) . (zip `ap` tail) <$> iterate peephole
+  where
+    peephole :: Foldable t => t (Ratio Integer) -> [Ratio Integer]
+    peephole = foldr g []
+      where
+        optimizable (a :% b) (c :% d) e =
+          a == d && PT.isPrime a && coprime c b && f a e
+        f a e = a `notElem` (e >>= h)
+        h (a :% b) = [a, b]
+        g x [] = [x]
+        g x@(a :% b) xs@(y@(c :% d):ys)
+          | optimizable x y ys = c % b : ys
+          | otherwise = x : xs
+
+-- |Check if peephole optimization yielded a program that had the same
+-- final end state.
+peepholeCorrect :: [Ratio Integer] -> Bool
+peepholeCorrect p = ((==) `on` (last . flip naive 2)) p (peepholeOptimize p)
