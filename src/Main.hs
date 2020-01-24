@@ -44,7 +44,6 @@ newtype Comp a =
            , MonadError String
            )
 
--- runComp :: Comp a -> Either String a
 run a = a & runComp & runExceptT & flip evalState initState
 
 initState =
@@ -107,23 +106,33 @@ class Monad repr =>
   -- Minimal instructions needed for Turing-completeness
   where
   {-# MINIMAL lit, label, addi, jge, gensym #-}
+  -- | Lift an integer directly into a FRACTRAN program.
   lit :: Integer -> repr [Rational]
+  
+  -- | Return a fraction corresponding to a given label.
   label :: String -> repr [Rational]
+  
+  -- | Immediate addition of an integer to a variable.
   addi :: String -> Integer -> repr [Rational]
+
+  -- | Check if a variable is greater than or equal to an integer, and
+  -- jump to a label.
   jge :: String -> Integer -> String -> repr [Rational]
   gensym :: repr String
   subi :: String -> Integer -> repr [Rational]
   subi x y = addi x (-y)
   adds :: String -> String -> repr [Rational]
-  -- | Add with store
+  
+  -- | Add and store
   adds a b = do
     gtemp <- gensym
     assemble
       [ while (jge b 1) [addi gtemp 1, subi b 1]
       , while (jge gtemp 1) [addi a 1, addi b 1, subi gtemp 1]
       ]
+      
+  -- | Multiply and store    
   muls :: String -> String -> repr [Rational]
-  -- | Multiply with store
   muls a b = do
     gtemp <- gensym
     grestore <- gensym
@@ -135,11 +144,13 @@ class Monad repr =>
       , zero gtemp
       , zero grestore
       ]
+      
   -- | Goto statement.
   goto :: String -> repr [Rational]
   goto dest = do
     g <- gensym
     jge g 0 dest
+    
   -- | While loop, taking a test and a body.
   while :: (String -> repr [Rational]) -> [repr [Rational]] -> repr [Rational]
   while test body = do
@@ -147,6 +158,7 @@ class Monad repr =>
     gend <- gensym
     assemble
       (concat [[goto gend, label gstart], body, [label gend, test gstart]])
+      
   -- | Jump if less than statement.
   jle :: String -> Integer -> String -> repr [Rational]
   jle var val dest = do
@@ -190,6 +202,7 @@ instance FracComp S where
   addi l x = tell [text l <+> "+=" <+> text (show x)] $> []
   jge l x dest = tell [text l <+> ">=" <+> (text (show x) <+> text dest)] $> []
   gensym = gets (('g' :) . show) <* modify (+ 1)
+  --------------------------------------------------------------
   jle l x dest = tell [text l <+> "<=" <+> (text (show x) <+> text dest)] $> []
   adds l x = tell [text l <+> "+=" <+> text x] $> []
   subi l x = tell [text l <+> "-=" <+> text (show x)] $> []
@@ -280,6 +293,8 @@ fibProg n =
   , label "end"
   ]
 
+-- Generate a FRACTRAN progarm that computes the sum of the first n
+-- numbers.
 sumTo n = [addi "c" 0, addi "n" n, while (jge "n" 0) [adds "c" "n", subi "n" 1]]
 
 main :: IO ()
