@@ -1,5 +1,9 @@
 # hasktran - A compiler for FRACTRAN written in Haskell.
 
+See my
+[writeup](https://blog.siraben.dev/2020/02/26/translating_cl.html) of
+this compiler.
+
 This was inspired by [Malisper's Common Lisp assembler for
 FRACTRAN](https://malisper.me/building-fizzbuzz-fractran-bottom/), but
 of course, in a purely functional manner.
